@@ -567,6 +567,11 @@ button[hidden] {
         baudRate: 115200,
         driver: YzxStudioDriver,
         defaultName: "YZXStudio" },
+      // RuiDeng TC66C (and friends).
+      { filter: { usbVendorId: 0x28e9 },
+        baudRate: 115200,
+        driver: RuiDengDriver,
+        defaultName: "TC66C" },
     ];
 
     // ---------------------------------------------------------------------
@@ -808,6 +813,377 @@ button[hidden] {
     };
 
     // ---------------------------------------------------------------------
+    // RuiDeng driver (TC66C and friends).
+    //
+    // The TC66C doesn't push data: the host writes the 5-byte ASCII command
+    // "getva" and the device replies with 192 bytes of AES-256-ECB
+    // ciphertext. That decrypts into three 64-byte packets ("pac1", "pac2",
+    // "pac3"), each ending with a CRC16-MODBUS checksum at offset 60.
+    // The power reading lives in pac1 at offset 56 (UInt32LE × 1e-4 W).
+    //
+    // We re-poll right after each pac3 (which closes a triplet), and a
+    // 200 ms watchdog repolls if a reply went missing. This matches the
+    // Node usb-power-profiling rate (~10 Hz on a TC66C).
+    //
+    // WebCrypto has no raw AES-ECB, so we use a single-block-CBC trick:
+    // see aesEcbDecrypt below for the gory details.
+    // ---------------------------------------------------------------------
+
+    // Fixed AES-256 key, taken from the upstream RuiDeng/usb-power-profiling
+    // driver. (TC66C firmware uses the same key for everyone.)
+    const RUIDENG_KEY = new Uint8Array([
+      88,  33, 250,  86,   1, 178, 240,  38,
+     135, 255,  18,   4,  98,  42,  79, 176,
+     134, 244,   2,  96, 129, 111, 154,  11,
+     167, 241,   6,  97, 154, 184, 114, 136,
+    ]);
+
+    // CRC16-MODBUS: poly 0xA001 reflected, init 0xFFFF, no final XOR.
+    // Used to validate every 64-byte plaintext packet from a RuiDeng meter.
+    function crc16Modbus(buf, end) {
+      let c = 0xFFFF;
+      for (let i = 0; i < end; ++i) {
+        c ^= buf[i];
+        for (let j = 0; j < 8; ++j) {
+          c = (c & 1) ? ((c >>> 1) ^ 0xA001) : (c >>> 1);
+        }
+      }
+      return c;
+    }
+
+    // Decrypt `ciphertext` (length must be a multiple of 16) under
+    // `cryptoKey` (already imported as AES-CBC), in plain ECB mode.
+    //
+    // WebCrypto's AES-CBC requires PKCS#7 padding on the plaintext, so we
+    // can't just call decrypt() on raw ECB ciphertext. The trick:
+    //
+    //   1. Append one extra ciphertext block C' chosen so that, in CBC mode,
+    //      its decryption XORed with the previous (real) ciphertext block
+    //      yields exactly {16}*16 — a valid PKCS#7 padding for a message
+    //      ending on a block boundary. Concretely:
+    //        C' = AES-encrypt({16}*16  XOR  ciphertext.lastBlock)
+    //      which we can compute via one AES-CBC-encrypt call with
+    //      iv = lastBlock and plaintext = {16}*16.
+    //   2. Decrypt [ciphertext, C'] with AES-CBC and IV = 0. This gives us
+    //      the CBC plaintext (with padding stripped automatically).
+    //   3. Convert CBC plaintext back to ECB plaintext by XORing each block
+    //      with the previous ciphertext block (with the "previous" block
+    //      for block 0 being the IV, which we chose as zero).
+    //
+    // Two SubtleCrypto round-trips per response is plenty fast at 10 Hz.
+    async function aesEcbDecrypt(ciphertext, cryptoKey) {
+      const last = ciphertext.subarray(ciphertext.length - 16);
+      const pad = new Uint8Array(16).fill(16);
+      const padCtBuf = new Uint8Array(await crypto.subtle.encrypt(
+        { name: "AES-CBC", iv: last }, cryptoKey, pad));
+      const padBlock = padCtBuf.subarray(0, 16);
+
+      const fullCt = new Uint8Array(ciphertext.length + 16);
+      fullCt.set(ciphertext);
+      fullCt.set(padBlock, ciphertext.length);
+
+      const cbcPt = new Uint8Array(await crypto.subtle.decrypt(
+        { name: "AES-CBC", iv: new Uint8Array(16) }, cryptoKey, fullCt));
+
+      const ecbPt = new Uint8Array(ciphertext.length);
+      for (let i = 0; i < ciphertext.length; i += 16) {
+        for (let j = 0; j < 16; ++j) {
+          const prev = i === 0 ? 0 : ciphertext[i - 16 + j];
+          ecbPt[i + j] = cbcPt[i + j] ^ prev;
+        }
+      }
+      return ecbPt;
+    }
+
+    function RuiDengDriver(portInfo) {
+      this.deviceName = "TC66C";          // refined later from pac1.productName
+      this.buffer = new Uint8Array(0);    // pending encrypted bytes
+      this.cryptoKey = null;
+      this.writer = null;
+      this.watchdogId = null;
+      this.lastPollTime = 0;
+      this.decrypting = false;            // serialize SubtleCrypto calls
+    }
+
+    RuiDengDriver.prototype = {
+      PACKET_SIZE: 64,
+      POLL_TIMEOUT_MS: 200,
+      // Wait this long after a successful packet before sending the next
+      // "getva". Polling too soon causes the device to overwrite its TX
+      // buffer's tail with 0xFF idle bytes — the last 16 bytes of the
+      // current 64-byte reply come back as garbage starting with 0xFF
+      // 0xFF, and the CRC fails. The Node version polls every 100 ms
+      // (with a 200 ms watchdog); we use 50 ms here to leave plenty of
+      // margin while still getting ~20 polls/sec (≈ 6 pac1 samples/sec
+      // since the device cycles through pac1/pac2/pac3).
+      POLL_IDLE_MS: 50,
+      POLL_CMD: new TextEncoder().encode("getva"),
+
+      async start(port) {
+        this.cryptoKey = await crypto.subtle.importKey(
+          "raw", RUIDENG_KEY, { name: "AES-CBC" }, false, ["encrypt", "decrypt"]);
+        this.writer = port.writable.getWriter();
+        // Diagnostic counters. Read out via _ruidengDriver.stats from the
+        // devtools console if you need to see them; otherwise silent.
+        // - packets: clean replies received and parsed.
+        // - repaired: replies whose initial CRC failed but that we
+        //   recovered by removing stuffed 0xFF byte(s).
+        // - dropped: replies whose initial CRC failed and that the
+        //   repair pass couldn't recover.
+        this.stats = { chunks: 0, bytesIn: 0,
+                       packets: 0, repaired: 0, dropped: 0,
+                       polls: 0, prefixCounts: {} };
+
+        await this.poll();
+        // Watchdog: re-poll if no reply landed within POLL_TIMEOUT_MS.
+        this.watchdogId = setInterval(() => {
+          if (Date.now() - this.lastPollTime > this.POLL_TIMEOUT_MS) {
+            this.poll().catch(e => console.error("watchdog poll failed:", e));
+          }
+        }, 100);
+        // Expose for ad-hoc inspection.
+        window._ruidengDriver = this;
+      },
+
+      async stop() {
+        if (this.watchdogId) {
+          clearInterval(this.watchdogId);
+          this.watchdogId = null;
+        }
+        if (this.nextPollTimerId) {
+          clearTimeout(this.nextPollTimerId);
+          this.nextPollTimerId = null;
+        }
+        if (this.writer) {
+          try { await this.writer.close(); } catch (_) {}
+          try { this.writer.releaseLock(); } catch (_) {}
+          this.writer = null;
+        }
+        this.cryptoKey = null;
+        this.buffer = new Uint8Array(0);
+      },
+
+      async poll() {
+        if (!this.writer) return;
+        this.lastPollTime = Date.now();
+        if (this.stats) ++this.stats.polls;
+        try {
+          await this.writer.write(this.POLL_CMD);
+        } catch (e) {
+          console.error("getva write failed:", e);
+        }
+      },
+
+      // Append the chunk to our buffer, then process whatever full packets
+      // we have. The TC66C replies with one 64-byte packet per "getva", so
+      // we process 64 bytes at a time and re-poll after each one.
+      onChunk(chunk) {
+        if (this.stats) {
+          ++this.stats.chunks;
+          this.stats.bytesIn += chunk.length;
+        }
+
+        if (this.buffer.length) {
+          const merged = new Uint8Array(this.buffer.length + chunk.length);
+          merged.set(this.buffer);
+          merged.set(chunk, this.buffer.length);
+          this.buffer = merged;
+        } else {
+          // Copy: chunk may be released back to the platform soon.
+          this.buffer = new Uint8Array(chunk);
+        }
+
+        // We don't await here — onChunk must return synchronously so the
+        // read loop doesn't stall. processBuffer serializes async work via
+        // this.decrypting.
+        this.processBuffer();
+      },
+
+      async processBuffer() {
+        if (this.decrypting) return;
+        this.decrypting = true;
+        try {
+          while (this.buffer.length >= this.PACKET_SIZE) {
+            // Snapshot the ciphertext now: aesEcbDecrypt awaits, and
+            // onChunk may reassign this.buffer during the await.
+            const ctSnap = new Uint8Array(this.buffer.subarray(0, this.PACKET_SIZE));
+            try {
+              const pt = await aesEcbDecrypt(ctSnap, this.cryptoKey);
+              const ok = this.handlePacket(pt, ctSnap);
+              if (ok) {
+                this.buffer = this.buffer.slice(this.PACKET_SIZE);
+                continue;
+              }
+
+              // CRC failed. The TC66C's CH340-style USB-serial bridge
+              // occasionally inserts 1–2 spurious 0xFF bytes into the
+              // tail of a reply (idle-fill stuffing). When they land in
+              // the last 16 bytes, blocks 0–2 still decrypt cleanly and
+              // we can repair the packet by deleting the 0xFFs. When
+              // they land earlier, the packet's CRC field falls past
+              // our 64-byte window and we have to drop the packet.
+              //
+              // In either case, drop the buffer entirely and request a
+              // fresh reply. The next reply gives us a clean 64-byte
+              // alignment; trying to keep the leftover would only let
+              // the misalignment propagate.
+              const repaired = await this.repairStuffed0xFF();
+              if (repaired) {
+                if (this.stats) ++this.stats.repaired;
+                this.handlePacket(repaired.pt, repaired.ct);
+              } else {
+                if (this.stats) ++this.stats.dropped;
+                console.warn("RuiDeng: dropped an unrepairable packet");
+              }
+              this.buffer = new Uint8Array(0);
+              this.scheduleNextPoll();
+              break;
+            } catch (e) {
+              console.error("AES decrypt failed:", e);
+              this.buffer = new Uint8Array(0);
+              break;
+            }
+          }
+        } finally {
+          this.decrypting = false;
+        }
+      },
+
+      // Try to recover a single 64-byte ciphertext that had 1 or 2
+      // spurious 0xFF bytes inserted somewhere by the CH340 USB-serial
+      // bridge (idle-fill stuffing). We need PACKET_SIZE+removed bytes
+      // in the buffer so the real packet tail isn't lost.
+      //
+      // Strategy: take the first 64+removed bytes, find every 0xFF
+      // position, and for each combination of `removed` of them, build
+      // a candidate ciphertext by deleting those bytes. Decrypt, and
+      // accept the first candidate whose plaintext has a known prefix
+      // (pac1/pac2/pac3) and a matching CRC.
+      async repairStuffed0xFF() {
+        for (const removed of [1, 2]) {
+          if (this.buffer.length < this.PACKET_SIZE + removed) break;
+          const window = this.buffer.subarray(0, this.PACKET_SIZE + removed);
+
+          // Scan the whole window: 0xFF stuffing can land anywhere,
+          // not just in the trailing block.
+          const candidates = [];
+          for (let i = 0; i < window.length; ++i) {
+            if (window[i] === 0xFF) candidates.push(i);
+          }
+          if (candidates.length < removed) continue;
+
+          // Cap the work for the 2-byte case. (n choose 2) where n=64
+          // is 2016 decryptions worst case — still well under 100 ms,
+          // but unnecessary in practice. If we ever see a packet where
+          // we'd actually need that many tries, the device is so noisy
+          // that recovery isn't useful anyway.
+          const MAX_COMBOS = 256;
+          const combos = [];
+          if (removed === 1) {
+            for (const p of candidates) {
+              if (combos.length >= MAX_COMBOS) break;
+              combos.push([p]);
+            }
+          } else {
+            for (let a = 0; a < candidates.length; ++a) {
+              for (let b = a + 1; b < candidates.length; ++b) {
+                if (combos.length >= MAX_COMBOS) break;
+                combos.push([candidates[a], candidates[b]]);
+              }
+              if (combos.length >= MAX_COMBOS) break;
+            }
+          }
+
+          for (const combo of combos) {
+            const ct = new Uint8Array(this.PACKET_SIZE);
+            const skip = new Set(combo);
+            let src = 0, dst = 0;
+            while (dst < this.PACKET_SIZE) {
+              if (skip.has(src)) { ++src; continue; }
+              ct[dst++] = window[src++];
+            }
+            try {
+              const pt = await aesEcbDecrypt(ct, this.cryptoKey);
+              const dv = new DataView(pt.buffer, pt.byteOffset, pt.byteLength);
+              if (dv.getUint16(60, true) === crc16Modbus(pt, 60)) {
+                const prefix = String.fromCharCode(pt[0], pt[1], pt[2], pt[3]);
+                if (prefix === "pac1" || prefix === "pac2" || prefix === "pac3") {
+                  return { pt, ct, removed };
+                }
+              }
+            } catch (_) { /* try next combo */ }
+          }
+        }
+        return null;
+      },
+
+      // Returns true if the packet was valid, false otherwise. Stats
+      // for failed/repaired/dropped packets are updated by processBuffer
+      // — handlePacket only counts successfully-parsed packets.
+      handlePacket(packet, ciphertext) {
+        const dv = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+        const expected = crc16Modbus(packet, 60);
+        const got = dv.getUint16(60, true);
+        if (got !== expected) return false;
+
+        const prefix = String.fromCharCode(packet[0], packet[1], packet[2], packet[3]);
+        if (this.stats) {
+          this.stats.prefixCounts[prefix] = (this.stats.prefixCounts[prefix] || 0) + 1;
+          ++this.stats.packets;
+        }
+
+        if (prefix === "pac1") {
+          // pac1 layout: voltage @48, current @52, power @56 (all 32-bit LE).
+          const voltage = dv.getUint32(48, true) * 1e-4;
+          const current = dv.getUint32(52, true) * 1e-5;
+          const power = dv.getUint32(56, true) * 1e-4;
+
+          // Refine the device name once from the productName ASCII field.
+          if (this.deviceName === "TC66C") {
+            const name = String.fromCharCode(packet[4], packet[5], packet[6], packet[7])
+                               .replace(/\0/g, "").trim();
+            if (name) {
+              this.deviceName = name;
+              setDeviceName(name);
+            }
+          }
+
+          addSample(performance.now() - startPerformanceNow, power, voltage);
+        } else if (prefix === "pac2" || prefix === "pac3") {
+          // pac2 has temperature/D+/D-, pac3 is mostly zeros. We don't
+          // use either, but their CRCs being valid means we're aligned.
+        } else {
+          // CRC was OK but the prefix isn't one we know — that's odd, log it
+          // so we can adapt if a future firmware adds packet types.
+          console.warn("RuiDeng: unknown packet prefix", JSON.stringify(prefix));
+        }
+
+        // Re-poll for the next packet — but not immediately. On the TC66C,
+        // sending a new "getva" while the device is still streaming the
+        // current reply seems to truncate the current reply and start a new
+        // one, leaving us with a half-real / half-stale 64-byte block whose
+        // CRC fails. Wait a couple of milliseconds of idle before polling.
+        // The watchdog (POLL_TIMEOUT_MS) re-fires us if this gets lost.
+        this.scheduleNextPoll();
+        return true;
+      },
+
+      // Schedule the next poll after a short idle gap, coalescing repeated
+      // calls so we don't queue up bursts.
+      scheduleNextPoll() {
+        if (this.nextPollTimerId) return;
+        this.nextPollTimerId = setTimeout(() => {
+          this.nextPollTimerId = null;
+          this.poll().catch(e => console.error("re-poll failed:", e));
+        }, this.POLL_IDLE_MS);
+      },
+
+      onDisconnect() {
+        this.buffer = new Uint8Array(0);
+      },
+    };
+
+    // ---------------------------------------------------------------------
     // Sample plumbing — appends a sample, updates the live readouts, and
     // schedules a chart redraw (coalesced via rAF, since samples can arrive
     // faster than we'd want to repaint).
@@ -915,6 +1291,18 @@ button[hidden] {
 
       readLoopAbort = new AbortController();
       readFromPort(port, currentDriver, readLoopAbort.signal);
+
+      // Drivers that need to send a request to make the device emit data
+      // (RuiDeng-style polling) implement start(port). For push-only devices
+      // (YZXStudio), this is a no-op.
+      if (currentDriver.start) {
+        try {
+          await currentDriver.start(port);
+        } catch (e) {
+          lastError = "driver.start failed: " + (e && e.message || e);
+          updateStatus();
+        }
+      }
     }
 
     async function readFromPort(port, driver, abortSignal) {
@@ -952,8 +1340,15 @@ button[hidden] {
     async function onDisconnectClick() {
       if (!currentPort) return;
       const port = currentPort;
+      const driver = currentDriver;
       currentPort = null;
+      currentDriver = null;
 
+      // Drivers that hold a writer or run timers must release them before
+      // port.close() can resolve.
+      if (driver && driver.stop) {
+        try { await driver.stop(); } catch (e) { console.error("driver.stop failed:", e); }
+      }
       if (readLoopAbort) {
         readLoopAbort.abort();
         readLoopAbort = null;
@@ -964,7 +1359,6 @@ button[hidden] {
         console.error("close failed:", e);
       }
 
-      currentDriver = null;
       document.getElementById("connectButton").hidden = false;
       document.getElementById("disconnectButton").hidden = true;
       setIndicatorStatus(null);

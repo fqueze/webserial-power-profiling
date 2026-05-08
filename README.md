@@ -37,7 +37,8 @@ class alongside `YzxStudioDriver`.
 | Device | USB ids (vendor:product) | Driver |
 |---|---|---|
 | YZXStudio (e.g. 1280E) | `1a86:*` (CH340) | `YzxStudioDriver` |
+| RuiDeng TC66C | `28e9:*` | `RuiDengDriver` |
 
-For now only the YZXStudio is implemented. Other meters supported by the
+Other meters supported by the
 [Node.js usb-power-profiling](https://github.com/fqueze/usb-power-profiling)
 that use a USB-to-serial bridge can be ported the same way.
