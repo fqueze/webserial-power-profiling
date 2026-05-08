@@ -1,0 +1,1437 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>WebSerial power profiling</title>
+  <style>
+@import url('https://fonts.googleapis.com/css2?family=Bai+Jamjuree:wght@400&family=Nunito+Sans:wght@400&display=swap');
+
+* { box-sizing: border-box; }
+html, body {
+  font-family: "Nunito Sans", Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.625rem;
+  margin: 0;
+  padding: 0;
+  margin-left: auto;
+  margin-right: auto;
+  color: #042f2e;
+  background-color: #ffffff;
+}
+
+@media (min-width: 576px) {
+  body {
+    max-width: 540px;
+  }
+}
+@media (min-width: 768px) {
+  body {
+    max-width: 720px;
+  }
+}
+@media (min-width: 992px) {
+  body {
+    max-width: 960px;
+  }
+}
+@media (min-width: 1200px) {
+  body {
+    max-width: 1140px;
+  }
+}
+@media (min-width: 1400px) {
+  body {
+    max-width: 1320px;
+  }
+}
+
+h1 {
+  font-family: "Bai Jamjuree", system-ui, sans-serif;
+  font-size: 2.5rem;
+  line-height: 3rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  color: #042f2e;
+}
+
+@media (min-width: 450px) {
+  h1 {
+    font-size: 3.25rem;
+    line-height: 3.9rem;
+  }
+}
+
+h1 span {
+  color: #064e3b;
+}
+
+header {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  min-height: 72px;
+  padding-block: 12px !important;
+  padding: 12px 24px;
+  align-items: center !important;
+  display: flex !important;
+  flex-wrap: wrap !important;
+}
+
+@media (min-width: 768px) {
+  header {
+    padding: 12px 72px;
+  }
+}
+
+header > * {
+  display: flex;
+}
+
+header > :first-child {
+  margin-right: auto !important;
+}
+
+h3 {
+  font-family: "Bai Jamjuree", system-ui, sans-serif;
+  font-size: 1.46rem;
+  line-height: 2.2rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  margin: 0;
+  color: #042f2e;
+}
+
+h3 span {
+  color: #064e3b;
+  font-weight: 400;
+}
+
+.content {
+  padding: 48px 24px;
+}
+
+@media (min-width: 768px) {
+  .content {
+    padding: 64px 72px;
+  }
+}
+
+p {
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+code {
+  background-color: #f3f4f6;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.9em;
+}
+
+input[type="text"] {
+  border: 1px solid #064e3b88;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-family: inherit;
+  font-size: 0.9em;
+}
+
+.profile {
+  color: #042f2e;
+  border-radius: 0px;
+  overflow: hidden;
+  margin-bottom: 1em;
+}
+.profile > div {
+  padding-top: 1px;
+  border-left: 5px solid #064e3b88;
+  border-right: 5px solid #064e3b88;
+  position: relative;
+  padding-bottom: calc(5% - 1px);
+}
+.profile > div:first-of-type {
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  border-top: 5px solid #064e3b88;
+  overflow: hidden;
+}
+.profile > div + div {
+  border-top: solid 1.5px #064e3b88;
+}
+.profile > div > svg {
+  position: absolute;
+}
+.profile > div + div::after {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background-color: #064e3b88;
+  pointer-events: none;
+}
+.profile path {
+  fill: #064e3b88;
+  stroke: #042f2e;
+  stroke-width: 6px;
+  stroke-linejoin: bevel;
+}
+/* stroke-width = 3px * (viewBox width = 2400px) / min-width */
+@media (min-width: 600px) {
+  .profile path {
+    stroke-width: 12px;
+  }
+}
+@media (min-width: 720px) {
+  .profile path {
+    stroke-width: 10px;
+  }
+}
+@media (min-width: 900px) {
+  .profile path {
+    stroke-width: 8px;
+  }
+}
+@media (min-width: 1020px) {
+  .profile path {
+    stroke-width: 7px;
+  }
+}
+@media (min-width: 1200px) {
+  .profile path {
+    stroke-width: 6px;
+  }
+}
+@media (min-width: 1440px) {
+  .profile path {
+    stroke-width: 5px;
+  }
+}
+@media (min-width: 1800px) {
+  .profile path {
+    stroke-width: 4px;
+  }
+}
+@media (min-width: 2400px) {
+  .profile path {
+    stroke-width: 3px;
+  }
+}
+@media (min-width: 3400px) {
+  .profile path {
+    stroke-width: 2px;
+  }
+}
+.profile > p {
+  font-weight: bold;
+  margin: 0;
+  background-color: #064e3b88;
+  color: #042f2e;
+  border: 5px solid transparent;
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  border-top: none;
+}
+.profile > p:before {
+  border-top: 1px solid #e5e7eb;
+  display: block;
+  content: "";
+}
+
+
+.chart-tooltip {
+  position: absolute;
+  background: #042f2e;
+  color: #e5e7eb;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  pointer-events: none;
+  z-index: 100;
+  display: none;
+}
+
+#switchPowerLine:empty {
+  display: none;
+}
+
+#switchPowerLine {
+  margin: 0.5rem 0;
+}
+
+#switchPowerLine > span {
+  display: inline-block;
+  min-width: 8em;
+  text-align: left;
+  margin-right: 2rem;
+}
+
+#switchPowerLine > span:last-child {
+  margin-right: 0;
+}
+
+.profile > table {
+  margin-top: 0.5em;
+  width: 100%;
+  float: left;
+  background-color: #064e3b88;
+  border-radius: 8px;
+  margin-right: 0.25em;
+  table-layout: fixed;
+}
+
+.profile > table.power {
+  margin-right: 0;
+}
+
+.profile > table.power td {
+  text-align: center;
+}
+
+.profile > table a {
+  color: #e5e7eb;
+}
+
+@media (min-width: 992px) {
+  .profile > table {
+    width: 50%;
+    width: calc(50% - 0.25em);
+  }
+  .profile > table.power {
+    margin-left: 0.25em;
+  }
+}
+
+.profile > table td {
+  padding: .1em .5em;
+  background-color: #042f2e;
+  color: #e5e7eb;
+  min-width: 4em;
+}
+
+.profile > table th {
+  padding: .1em .5em;
+  background-color: transparent;
+  color: #042f2e;
+  font-weight: bold;
+  text-align: center;
+}
+
+
+.profile > table tr:first-child td:first-child {
+  border-top-left-radius: 6px;
+}
+
+.profile > table tr:first-child td:last-child {
+  border-top-right-radius: 6px;
+}
+
+.profile > table tr:last-child td:first-child {
+  border-bottom-left-radius: 6px;
+}
+
+.profile > table tr:last-child td:last-child {
+  border-bottom-right-radius: 6px;
+}
+
+.profile > table.power tr:last-of-type > td:first-of-type {
+  border-radius: 0px;
+}
+
+.profile > table.power tr:first-of-type > td:last-of-type {
+  border-bottom-right-radius: 0px;
+}
+
+.profile > table.power tr:last-of-type > td:last-of-type {
+  border-top-right-radius: 0px;
+}
+
+.profiler-link {
+  background-position: center;
+  background-repeat: no-repeat;
+  background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="%23042f2e" fill-opacity="context-fill-opacity"><path d="M8 0A8 8 0 0 0 .78 11.43a1 1 0 1 0 1.8-.86 5.94 5.94 0 0 1 0-5.17 6 6 0 0 1 10.83 5.17 1 1 0 1 0 1.81.86A7.99 7.99 0 0 0 8 0M10 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0M10.96 6.7a.5.5 0 1 0-.92-.4l-1.7 3.73a2 2 0 0 1 .92.41l1.7-3.73z"/></svg>');
+  float: right;
+  width: 26px;
+  height: 26px;
+  padding: 5px;
+}
+
+.profiler-link:hover {
+  background-color: #73737344;
+}
+
+a {
+  color: #064e3b;
+  text-decoration: underline;
+}
+
+a:hover {
+  color: #042f2e;
+  text-decoration: none;
+}
+
+footer {
+  text-align: center;
+  font-size: smaller;
+  border-top: 1px solid rgba(0, 0, 0, 0.12);
+  padding-top: 2rem !important;
+  margin-top: 3rem;
+  color: #374151;
+}
+footer img {
+  height: 22px !important;
+  width: auto;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+}
+footer a {
+  color: #374151;
+}
+
+.status-indicator {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  margin-right: 0.5em;
+  vertical-align: middle;
+  transition: opacity 0.3s;
+}
+
+#statusText {
+  vertical-align: middle;
+}
+
+.content:not(.has-data) > *:not(:first-child) {
+  visibility: hidden;
+}
+
+.status-indicator circle {
+  fill: none;
+  stroke-width: 2;
+}
+
+.status-indicator circle:first-child {
+  stroke: #064e3b22;
+}
+
+.status-indicator #statusProgress {
+  stroke: #064e3b88;
+  stroke-dasharray: 50.265;
+  stroke-dashoffset: 50.265;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
+}
+
+.status-indicator.fetching #statusProgress {
+  stroke-dashoffset: 50.265;
+}
+
+.status-indicator.waiting #statusProgress {
+  animation: fillCircle 5s linear forwards;
+}
+
+@keyframes fillCircle {
+  from {
+    stroke-dashoffset: 50.265;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.status-indicator.error #statusProgress {
+  stroke: #dc2626 !important;
+  stroke-dashoffset: 0 !important;
+}
+
+.status-indicator.stale {
+  opacity: 0.3;
+}
+
+.status-indicator.stale #statusProgress {
+  stroke-dashoffset: 0;
+}
+
+.switch-name {
+  cursor: text;
+  border-bottom: 1px dotted transparent;
+}
+
+.switch-name:hover {
+  border-bottom-color: #064e3b;
+  background-color: #f3f4f6;
+}
+
+.profile > div > svg > circle {
+  fill: #042f2e;
+}
+
+button {
+  font-family: inherit;
+  font-size: 0.95rem;
+  background-color: #064e3b;
+  color: #ffffff;
+  border: 1px solid #042f2e;
+  border-radius: 4px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+button:hover {
+  background-color: #042f2e;
+}
+
+button[hidden] {
+  display: none;
+}
+
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h3>WebSerial Power Profiling<span id="deviceNameH1"></span></h3>
+    </div>
+    <div>
+      <a href="https://github.com/fqueze/webserial-power-profiling" target="_blank" title="View on GitHub" style="display: flex; align-items: center; padding: 0.5rem;">
+        <svg width="24" height="24" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+        </svg>
+      </a>
+    </div>
+  </header>
+  <div class="content">
+    <p>
+      <button id="connectButton" type="button">Connect to a power meter…</button>
+      <button id="disconnectButton" type="button" hidden>Disconnect</button>
+      <button id="resetButton" type="button" hidden>Reset samples</button>
+      <svg id="statusIndicator" class="status-indicator" viewBox="0 0 20 20">
+        <circle cx="10" cy="10" r="8" />
+        <circle id="statusProgress" cx="10" cy="10" r="8" />
+      </svg><span id="statusText">Click Connect, then pick the power meter's serial port. Shift-click to show all serial ports.</span>
+    </p>
+    <h1 id="power">Live profile: <span id="lastPower">—</span> <span id="lastVoltage"></span></h1>
+  <div class="profile" id="chartContainer">
+    <!-- Main total chart -->
+    <div id="totalChart">
+      <svg viewBox="0 0 2400 120">
+        <path d=""/>
+      </svg>
+    </div>
+    <p id="profileDescription"><span id="deviceNameProfile"></span>, <span id="sampleCount">0</span> samples<a class="profiler-link" target="_blank" title="Open in the Firefox Profiler" id="open" href="#"></a></p>
+  </div>
+  <div class="profile">
+    <table>
+      <tr><th>Consumption</th><td><span id="totalEnergy">—</span></td></tr>
+      <tr><th>Duration</th><td><span id="totalTime">—</span></td></tr>
+      <tr><th rowspan="2">Download as</th><td><a id="csv" href="#">CSV</a></td></tr>
+      <tr><td><a id="profile" href="#">profile</a></td></tr>
+    </table>
+    <table class="power">
+      <tr><th rowspan="2">Power</th><td>median</td><td>average</td><td>max</td></tr>
+      <tr>
+        <td><span id="medianPower">—</span></td>
+        <td><span id="averagePower">—</span></td>
+        <td><span id="maxPower">—</span></td>
+      </tr>
+      <tr id="voltageHeaderRow"><th rowspan="2">Voltage</th><td>min</td><td>average</td><td>max</td></tr>
+      <tr id="voltageRow">
+        <td><span id="minVoltage">—</span></td>
+        <td><span id="averageVoltage">—</span></td>
+        <td><span id="maxVoltage">—</span></td>
+      </tr>
+    </table>
+  </div>
+  </div>
+  <script type="application/javascript">
+    // ---------------------------------------------------------------------
+    // Supported devices.
+    //
+    // Each entry has a Web Serial filter (matched against the USB serial
+    // adapter the meter uses) plus a driver class. The first driver whose
+    // filter matches a port is used. Add entries here when a new meter is
+    // ported over.
+    //
+    // To experiment with a device that isn't in this list, shift-click the
+    // Connect button: the chooser will then show every serial port. Once
+    // you find the right vendor/product id, add it here.
+    // ---------------------------------------------------------------------
+
+    const SUPPORTED_DEVICES = [
+      // YZXStudio (e.g. 1280E) — uses a CH340 USB-serial bridge.
+      { filter: { usbVendorId: 0x1a86 },
+        baudRate: 115200,
+        driver: YzxStudioDriver,
+        defaultName: "YZXStudio" },
+    ];
+
+    // ---------------------------------------------------------------------
+    // Sample storage.
+    //
+    // sampleTimes[i] is the timestamp in ms (relative to startPerformanceNow)
+    // for sample[i]. samples[i] is the instantaneous power in W.
+    //
+    // We append to flat arrays and never wrap; with the YZXStudio's ~10 Hz
+    // rate this is fine for hours of recording. If a faster meter is added
+    // later, switch to the ring-buffer scheme used in usb-power-profiling.js.
+    // ---------------------------------------------------------------------
+
+    let samples = [];
+    let sampleTimes = [];
+    let voltages = [];   // optional, parallel to samples; empty if device doesn't report voltage
+    let startTime = 0;            // wall-clock ms when sampling started (Date.now())
+    let startPerformanceNow = 0;  // performance.now() when sampling started
+    let deviceName = "Power meter";
+    let deviceSerialNumber = "";
+
+    let currentPort = null;       // open SerialPort, or null
+    let currentDriver = null;     // active driver instance, or null
+    let readLoopAbort = null;     // AbortController used to break out of the read loop on disconnect
+
+    // ---------------------------------------------------------------------
+    // Helpers reused from the Shelly UI.
+    // ---------------------------------------------------------------------
+
+    function setText(id, text) {
+      document.getElementById(id).innerHTML = text;
+    }
+
+    function formatDuration(timeS) {
+      timeS = Math.round(timeS);
+      let result = "";
+      if (timeS >= 60) {
+        let timeMin = Math.floor(timeS / 60);
+        if (timeMin >= 60) {
+          let timeHours = Math.floor(timeMin / 60);
+          if (timeHours >= 24) {
+            result = Math.floor(timeHours / 24) + "d";
+            let hour = timeHours % 24;
+            if (hour) {
+              result += hour + "h";
+            }
+          } else {
+            result = timeHours + "h";
+            let min = timeMin % 60;
+            if (min) {
+              result += min + "min";
+            }
+          }
+        } else {
+          let sec = timeS % 60;
+          result = timeMin + "min";
+          if (sec) {
+            result += sec + "s";
+          }
+        }
+      } else {
+        result = timeS + "s";
+      }
+      return result;
+    }
+
+    function toPrecisionIfNotInt(number) {
+      // Because of floating point representations, we can get numbers like
+      // 8.000000000000007. Treat them as if they were integers.
+      let isAlmostInt = Math.round(number) == Math.round(number * 1000) / 1000;
+      return isAlmostInt ? Math.round(number)
+                         : number.toPrecision(3);
+    }
+
+    const nbsp = "&nbsp;";
+    function formatPower(powerW, separator = nbsp) {
+      const absPower = Math.abs(powerW);
+      if (absPower < 1) {
+        return toPrecisionIfNotInt(powerW * 1000) + separator + "mW";
+      }
+      if (absPower > 1000) {
+        return toPrecisionIfNotInt(powerW / 1000) + separator + "kW";
+      }
+      return toPrecisionIfNotInt(powerW) + separator + "W";
+    }
+
+    function formatEnergy(energyWh, separator = nbsp) {
+      if (energyWh < 1 && energyWh > 0) {
+        return toPrecisionIfNotInt(energyWh * 1000) + separator + "mWh";
+      }
+      if (energyWh > 1000) {
+        return toPrecisionIfNotInt(energyWh / 1000) + separator + "kWh";
+      }
+      return toPrecisionIfNotInt(energyWh) + separator + "Wh";
+    }
+
+    function formatVoltage(voltageV) {
+      return (Math.round(voltageV * 100) / 100) + nbsp + "V";
+    }
+
+    // Iterative quickselect — same implementation as the Shelly UI; handles
+    // long runs of duplicate values (idle periods) in O(n).
+    function calculateMedian(data) {
+      const arr = data.slice();
+      const k = Math.floor(arr.length / 2);
+
+      function medianOfThree(arr, left, right) {
+        const mid = Math.floor((left + right) / 2);
+        if (arr[left] > arr[mid]) [arr[left], arr[mid]] = [arr[mid], arr[left]];
+        if (arr[left] > arr[right]) [arr[left], arr[right]] = [arr[right], arr[left]];
+        if (arr[mid] > arr[right]) [arr[mid], arr[right]] = [arr[right], arr[mid]];
+        [arr[mid], arr[right]] = [arr[right], arr[mid]];
+      }
+
+      function partition3way(arr, left, right) {
+        medianOfThree(arr, left, right);
+        const pivot = arr[right];
+        let lt = left, gt = right, i = left;
+        while (i <= gt) {
+          if (arr[i] < pivot) {
+            [arr[lt], arr[i]] = [arr[i], arr[lt]];
+            lt++; i++;
+          } else if (arr[i] > pivot) {
+            [arr[i], arr[gt]] = [arr[gt], arr[i]];
+            gt--;
+          } else {
+            i++;
+          }
+        }
+        return [lt, gt];
+      }
+
+      let left = 0, right = arr.length - 1;
+      while (left < right) {
+        const [lt, gt] = partition3way(arr, left, right);
+        if (k < lt) right = lt - 1;
+        else if (k > gt) left = gt + 1;
+        else return arr[k];
+      }
+      return arr[k];
+    }
+
+    function setDeviceName(name) {
+      deviceName = name;
+      document.title = `${deviceName} power profiling`;
+      setText("deviceNameProfile", deviceName);
+      setText("deviceNameH1", ": " + deviceName);
+    }
+
+    // ---------------------------------------------------------------------
+    // YZXStudio driver.
+    //
+    // The 1280E sends a continuous stream of 28-byte frames (~10 Hz) at
+    // 115200 baud as soon as the port is open. No command is needed.
+    //
+    // Frame layout (matches usb-power-profiling.js):
+    //   [0]      0xAB   start byte
+    //   [1..2]   ???    seen as 02 03; ignored
+    //   [3..6]   Int32LE   voltage in 0.1 mV units (×1e-4 → V)
+    //   [7..10]  UInt32LE  current in 0.1 mA units (×1e-4 → A)
+    //   [11..14] UInt32LE  Ah accumulator (×1e-4 → Ah)
+    //   [15..18] UInt32LE  Wh accumulator (×1e-4 → Wh)
+    //   [19..22] UInt32LE  device-side time in 10 ms units (only advances when
+    //                      power > 0, so unsuitable for our timestamps)
+    //   [23..24] UInt16LE  D+ in mV
+    //   [25..26] UInt16LE  D- in mV
+    //   [27]     checksum: sum of bytes 0..26 mod 256
+    //
+    // Frames don't always arrive whole in a single read() chunk, and the
+    // CH340 sometimes drops a byte at startup, so we re-sync on 0xAB.
+    // ---------------------------------------------------------------------
+
+    function YzxStudioDriver(portInfo) {
+      // Per-instance buffer of unparsed bytes. Grows up to one frame.
+      this.buffer = new Uint8Array(0);
+      // The driver doesn't get a useful name from the USB descriptor over
+      // Web Serial (no string-descriptor access), so use the default.
+      this.deviceName = "YZXStudio";
+    }
+
+    YzxStudioDriver.prototype = {
+      FRAME_SIZE: 28,
+      START_BYTE: 0xAB,
+
+      // Called once per chunk that arrives from port.readable.
+      onChunk(chunk) {
+        // Concatenate with whatever was left from the previous chunk.
+        if (this.buffer.length) {
+          const merged = new Uint8Array(this.buffer.length + chunk.length);
+          merged.set(this.buffer);
+          merged.set(chunk, this.buffer.length);
+          this.buffer = merged;
+        } else {
+          this.buffer = chunk;
+        }
+
+        let i = 0;
+        while (i + this.FRAME_SIZE <= this.buffer.length) {
+          if (this.buffer[i] != this.START_BYTE) {
+            // Out of sync — skip to the next 0xAB candidate.
+            ++i;
+            continue;
+          }
+          const frame = this.buffer.subarray(i, i + this.FRAME_SIZE);
+          if (this.parseFrame(frame)) {
+            i += this.FRAME_SIZE;
+          } else {
+            // Bad checksum: maybe we synced on a 0xAB that was actually
+            // mid-payload. Skip one byte and try again.
+            ++i;
+          }
+        }
+        // Keep the unparsed tail (which may include a partial frame).
+        this.buffer = this.buffer.slice(i);
+      },
+
+      parseFrame(frame) {
+        let sum = 0;
+        for (let k = 0; k < this.FRAME_SIZE - 1; ++k) {
+          sum += frame[k];
+        }
+        if ((sum & 0xff) != frame[this.FRAME_SIZE - 1]) {
+          return false;
+        }
+
+        // DataView to avoid creating a Buffer polyfill.
+        const dv = new DataView(frame.buffer, frame.byteOffset, frame.byteLength);
+        const voltage = dv.getInt32(3, true) * 1e-4;
+        const current = dv.getUint32(7, true) * 1e-4;
+        const power = voltage * current;
+
+        addSample(performance.now() - startPerformanceNow, power, voltage);
+        return true;
+      },
+
+      onDisconnect() {
+        this.buffer = new Uint8Array(0);
+      },
+    };
+
+    // ---------------------------------------------------------------------
+    // Sample plumbing — appends a sample, updates the live readouts, and
+    // schedules a chart redraw (coalesced via rAF, since samples can arrive
+    // faster than we'd want to repaint).
+    // ---------------------------------------------------------------------
+
+    function addSample(timeMs, powerW, voltageV) {
+      // Round to nanosecond precision (1 µs is enough for our needs).
+      timeMs = Math.round(timeMs * 1000) / 1000;
+      sampleTimes.push(timeMs);
+      samples.push(powerW);
+      if (voltageV !== undefined) {
+        voltages.push(voltageV);
+      }
+
+      lastUpdateTime = Date.now();
+
+      // Show the data section after the first sample.
+      if (samples.length == 1) {
+        document.querySelector(".content").classList.add("has-data");
+      }
+
+      scheduleRedraw();
+    }
+
+    let redrawScheduled = false;
+    function scheduleRedraw() {
+      if (redrawScheduled) return;
+      redrawScheduled = true;
+      requestAnimationFrame(() => {
+        redrawScheduled = false;
+        showGraph();
+        updateStatus();
+      });
+    }
+
+    // ---------------------------------------------------------------------
+    // Web Serial connection management.
+    // ---------------------------------------------------------------------
+
+    function pickDriver(port) {
+      const info = port.getInfo();
+      for (const dev of SUPPORTED_DEVICES) {
+        const f = dev.filter;
+        if (f.usbVendorId !== undefined && info.usbVendorId !== f.usbVendorId) continue;
+        if (f.usbProductId !== undefined && info.usbProductId !== f.usbProductId) continue;
+        return dev;
+      }
+      return null;
+    }
+
+    async function onConnectClick(event) {
+      if (!("serial" in navigator)) {
+        lastError = "This browser doesn't support the Web Serial API. Try Chrome, Edge, or Opera.";
+        updateStatus();
+        return;
+      }
+
+      let port;
+      try {
+        // Shift-click bypasses the filter so we can experiment with new devices.
+        const filters = event.shiftKey ? []
+                                       : SUPPORTED_DEVICES.map(d => d.filter);
+        port = await navigator.serial.requestPort(filters.length ? { filters } : {});
+      } catch (e) {
+        // User cancelled the chooser, or no port matched the filter.
+        if (e && e.name == "NotFoundError") {
+          lastError = "No port selected. Tip: shift-click Connect to show all serial ports.";
+        } else {
+          lastError = "requestPort failed: " + (e && e.message || e);
+        }
+        updateStatus();
+        return;
+      }
+
+      const dev = pickDriver(port);
+      if (!dev) {
+        lastError = "This device's vendor id is not in the supported list. " +
+                    "Add it to SUPPORTED_DEVICES in index.html, then reload.";
+        updateStatus();
+        return;
+      }
+
+      try {
+        await port.open({ baudRate: dev.baudRate });
+      } catch (e) {
+        lastError = "Failed to open serial port: " + (e && e.message || e);
+        updateStatus();
+        return;
+      }
+
+      // Switch UI into "connected" mode.
+      currentPort = port;
+      currentDriver = new dev.driver(port.getInfo());
+      setDeviceName(currentDriver.deviceName || dev.defaultName);
+      lastError = null;
+      lastUpdateTime = null;
+      startTime = Date.now();
+      startPerformanceNow = performance.now();
+
+      document.getElementById("connectButton").hidden = true;
+      document.getElementById("disconnectButton").hidden = false;
+      document.getElementById("resetButton").hidden = false;
+      setText("statusText", "Sampling…");
+      setIndicatorStatus("fetching");
+
+      readLoopAbort = new AbortController();
+      readFromPort(port, currentDriver, readLoopAbort.signal);
+    }
+
+    async function readFromPort(port, driver, abortSignal) {
+      // Consume from port.readable until we're asked to stop or the device
+      // is unplugged. The pattern is the one MDN recommends.
+      while (port.readable && !abortSignal.aborted) {
+        const reader = port.readable.getReader();
+        const onAbort = () => reader.cancel().catch(() => {});
+        abortSignal.addEventListener("abort", onAbort, { once: true });
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break; // reader has been canceled
+            if (value && value.length) {
+              try {
+                driver.onChunk(value);
+              } catch (e) {
+                console.error("driver.onChunk threw:", e);
+              }
+            }
+          }
+        } catch (e) {
+          // Non-fatal stream errors: log and let the outer while reopen.
+          console.error("read error:", e);
+          lastError = "Read error: " + (e && e.message || e);
+          updateStatus();
+        } finally {
+          abortSignal.removeEventListener("abort", onAbort);
+          try { reader.releaseLock(); } catch (_) {}
+        }
+      }
+      driver.onDisconnect && driver.onDisconnect();
+    }
+
+    async function onDisconnectClick() {
+      if (!currentPort) return;
+      const port = currentPort;
+      currentPort = null;
+
+      if (readLoopAbort) {
+        readLoopAbort.abort();
+        readLoopAbort = null;
+      }
+      try {
+        await port.close();
+      } catch (e) {
+        console.error("close failed:", e);
+      }
+
+      currentDriver = null;
+      document.getElementById("connectButton").hidden = false;
+      document.getElementById("disconnectButton").hidden = true;
+      setIndicatorStatus(null);
+      setText("statusText", "Disconnected. Click Connect to start a new session.");
+    }
+
+    function onResetClick() {
+      samples = [];
+      sampleTimes = [];
+      voltages = [];
+      processedSamples = 0;
+      cachedStats = { maxPower: 0, energyJ: 0,
+                      minVoltage: Infinity, maxVoltage: -Infinity, sumVoltage: 0,
+                      sumVoltageWeight: 0 };
+      startTime = Date.now();
+      startPerformanceNow = performance.now();
+      document.querySelector(".content").classList.remove("has-data");
+      setText("sampleCount", "0");
+      setText("lastPower", "—");
+      setText("lastVoltage", "");
+      document.querySelector("#totalChart path").setAttribute("d", "");
+      lastUpdateTime = null;
+      updateStatus();
+    }
+
+    // ---------------------------------------------------------------------
+    // Status indicator (reused from Shelly UI, simplified).
+    // ---------------------------------------------------------------------
+
+    let lastUpdateTime = null;
+    let lastError = null;
+
+    function setIndicatorStatus(status) {
+      const indicator = document.getElementById("statusIndicator");
+      indicator.classList.remove("fetching", "waiting", "error", "stale");
+      if (status) indicator.classList.add(status);
+    }
+
+    function updateStatus() {
+      if (document.hidden) return;
+
+      let message;
+      if (lastError) {
+        message = "Error: " + lastError;
+        setIndicatorStatus("error");
+      } else if (currentPort && lastUpdateTime) {
+        message = "Last sample: " + new Date(lastUpdateTime).toLocaleTimeString();
+        // Stale if no sample in 3 seconds (YZXStudio normally pushes ~10 Hz).
+        const isStale = (Date.now() - lastUpdateTime) >= 3000;
+        setIndicatorStatus(isStale ? "stale" : "fetching");
+      } else if (currentPort) {
+        message = "Connected, waiting for first sample…";
+        setIndicatorStatus("fetching");
+      } else {
+        return;
+      }
+      document.getElementById("statusText").textContent = message;
+    }
+
+    // ---------------------------------------------------------------------
+    // Chart rendering.
+    //
+    // Adapted from the usb-power-profiling UI: the x coordinate of sample i
+    // is (sampleTimes[i] - sampleTimes[0]) / duration, so the chart shows
+    // real elapsed time even when sampling rate isn't constant. We keep the
+    // Shelly-UI's clever path-emitter that compresses long flat regions and
+    // collapses many y-values onto the same x.
+    // ---------------------------------------------------------------------
+
+    const graphHeight = 120;
+    const graphWidth = 2400;
+    const halfStrokeWidth = 3;
+
+    function makeSVGPath(times, values, maxValue) {
+      // Trivial cases.
+      if (values.length == 0) return "";
+      const t0 = times[0];
+      const duration = times[times.length - 1] - t0;
+      if (duration <= 0) {
+        // Single sample (or all same time): draw a flat baseline.
+        const y = values[0] == 0 ? graphHeight + halfStrokeWidth
+            : Math.round(Math.max(halfStrokeWidth, (1 - values[0] / maxValue) * graphHeight));
+        return `M-${halfStrokeWidth * 2} ${graphHeight}V${y}H${graphWidth + halfStrokeWidth * 2}V${graphHeight}`;
+      }
+
+      let lastLetter = "";
+      function letter(l) {
+        if (l == lastLetter) return "";
+        lastLetter = l;
+        return l;
+      }
+      let path;
+      function append(cmd) {
+        if (/^\d/.test(cmd) && /\d$/.test(path)) path += " ";
+        path += cmd;
+      }
+
+      const x = i => Math.round(((times[i] - t0) / duration) * graphWidth);
+      const y = i => values[i] == 0 ? graphHeight + halfStrokeWidth
+          : Math.round(Math.max(halfStrokeWidth, (1 - values[i] / maxValue) * graphHeight));
+
+      let lastX = -halfStrokeWidth * 2;
+      let lastY = y(0);
+      path = `${letter('M')}${lastX} ${graphHeight}V${lastY}`;
+      for (let i = 0; i < values.length; ++i) {
+        let xi = x(i);
+        let yi = y(i);
+        if (xi == lastX && yi == lastY) continue;
+        if (yi == lastY) {
+          while (i + 1 < values.length && y(i + 1) == lastY) {
+            xi = x(++i);
+          }
+          append(`${letter('h')}${xi - lastX}`);
+        } else {
+          if (xi == lastX) {
+            // Several samples land on the same pixel column. Emit the local
+            // extremes plus the final value so spikes survive.
+            let ys = [yi];
+            let j = 1;
+            while (i + j < values.length && x(i + j) == xi) {
+              ys.push(y(i + j));
+              ++j;
+            }
+            let usefulYs = [];
+            let max = Math.max(...ys);
+            let min = Math.min(...ys);
+            let last = ys[ys.length - 1];
+            if (max != last && max > lastY) usefulYs.push(max);
+            if (min != last && min < lastY) usefulYs.push(min);
+            usefulYs.push(last);
+
+            i += j - 1;
+            for (let usefulY of usefulYs) {
+              yi = usefulY;
+              let v = `${lastLetter != 'v' ? 'v' : ''}${yi - lastY}`;
+              let V = `${lastLetter != 'V' ? 'V' : ''}${yi}`;
+              if (v.length <= V.length) { append(v); lastLetter = 'v'; }
+              else                       { append(V); lastLetter = 'V'; }
+              lastY = yi;
+            }
+          } else {
+            append(`${letter('l')}${xi - lastX}`);
+            append(`${yi - lastY}`);
+          }
+        }
+        lastX = xi;
+        lastY = yi;
+      }
+      path += `H${graphWidth + halfStrokeWidth * 2}V${graphHeight}`;
+      return path;
+    }
+
+    // Cached running stats so we don't rescan every sample on every redraw.
+    let cachedStats = {
+      maxPower: 0,
+      energyJ: 0,           // accumulated energy in joules (W·s)
+      minVoltage: Infinity,
+      maxVoltage: -Infinity,
+      sumVoltage: 0,        // for time-weighted average
+      sumVoltageWeight: 0,  // total weight (seconds) used in sumVoltage
+    };
+    let processedSamples = 0;
+
+    function showGraph() {
+      if (document.hidden || processedSamples >= samples.length) return;
+
+      while (processedSamples < samples.length) {
+        const i = processedSamples;
+        const power = samples[i];
+        if (power > cachedStats.maxPower) cachedStats.maxPower = power;
+
+        // Time interval between this sample and the previous one, in seconds.
+        // For i == 0 we have no interval; treat it as zero contribution.
+        const dt = i == 0 ? 0 : (sampleTimes[i] - sampleTimes[i - 1]) / 1000;
+        cachedStats.energyJ += power * dt;
+
+        if (voltages.length > i) {
+          const voltage = voltages[i];
+          if (voltage < cachedStats.minVoltage) cachedStats.minVoltage = voltage;
+          if (voltage > cachedStats.maxVoltage) cachedStats.maxVoltage = voltage;
+          cachedStats.sumVoltage += voltage * dt;
+          cachedStats.sumVoltageWeight += dt;
+        }
+
+        ++processedSamples;
+      }
+
+      document.querySelector("#totalChart path").setAttribute(
+        "d", makeSVGPath(sampleTimes, samples, cachedStats.maxPower));
+
+      const durationS = (sampleTimes[sampleTimes.length - 1] - sampleTimes[0]) / 1000;
+      setText("sampleCount", samples.length);
+      setText("lastPower", formatPower(samples[samples.length - 1]));
+      if (voltages.length) {
+        setText("lastVoltage", formatVoltage(voltages[voltages.length - 1]));
+      }
+
+      setText("maxPower", formatPower(cachedStats.maxPower));
+      setText("totalTime", formatDuration(durationS));
+      // Average power = total energy / total duration.
+      const avg = durationS > 0 ? cachedStats.energyJ / durationS
+                                : samples[samples.length - 1];
+      setText("averagePower", formatPower(avg));
+      setText("medianPower", formatPower(calculateMedian(samples)));
+      setText("totalEnergy", formatEnergy(cachedStats.energyJ / 3600));
+
+      if (voltages.length && cachedStats.sumVoltageWeight > 0) {
+        setText("minVoltage", formatVoltage(cachedStats.minVoltage));
+        setText("averageVoltage", formatVoltage(cachedStats.sumVoltage / cachedStats.sumVoltageWeight));
+        setText("maxVoltage", formatVoltage(cachedStats.maxVoltage));
+      } else if (!voltages.length) {
+        // No voltage data at all — drop the rows once.
+        const headerRow = document.getElementById("voltageHeaderRow");
+        if (headerRow) headerRow.remove();
+        const valueRow = document.getElementById("voltageRow");
+        if (valueRow) valueRow.remove();
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // Tooltip on the chart (adapted from Shelly UI for time-based x-axis).
+    // ---------------------------------------------------------------------
+
+    let tooltip = null;
+    let hoverDot = null;
+
+    function addChartTooltip(chartDiv, getTimes, getValues, formatter) {
+      if (!tooltip) {
+        tooltip = document.createElement("div");
+        tooltip.className = "chart-tooltip";
+        document.body.appendChild(tooltip);
+      }
+      if (!hoverDot) {
+        hoverDot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        hoverDot.setAttribute("r", "9");
+        hoverDot.style.display = "none";
+      }
+
+      const svg = chartDiv.querySelector("svg");
+      if (!svg) return;
+
+      svg.addEventListener("mousemove", e => {
+        const times = getTimes();
+        const values = getValues();
+        if (!values || values.length == 0) return;
+
+        const rect = svg.getBoundingClientRect();
+        const xRatio = (e.clientX - rect.left) / rect.width;
+        const t0 = times[0];
+        const duration = times[times.length - 1] - t0;
+        const targetT = t0 + xRatio * duration;
+
+        // Binary search for the nearest sample by time.
+        let lo = 0, hi = times.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi) >> 1;
+          if (times[mid] < targetT) lo = mid + 1;
+          else hi = mid;
+        }
+        if (lo > 0 && Math.abs(times[lo - 1] - targetT) < Math.abs(times[lo] - targetT)) {
+          --lo;
+        }
+        const idx = lo;
+        const value = values[idx];
+
+        tooltip.innerHTML = formatter(value, idx, times[idx] - t0);
+        tooltip.style.display = "block";
+        tooltip.style.left = e.pageX + 10 + "px";
+        tooltip.style.top = e.pageY - 30 + "px";
+
+        const xPos = duration > 0 ? ((times[idx] - t0) / duration) * graphWidth : 0;
+        const maxValue = cachedStats.maxPower;
+        const yPos = maxValue > 0 ? graphHeight - (value / maxValue) * graphHeight : graphHeight / 2;
+        hoverDot.setAttribute("cx", xPos);
+        hoverDot.setAttribute("cy", yPos);
+        hoverDot.style.display = "block";
+        if (!svg.contains(hoverDot)) svg.appendChild(hoverDot);
+      });
+
+      svg.addEventListener("mouseleave", () => {
+        if (tooltip) tooltip.style.display = "none";
+        if (hoverDot) hoverDot.style.display = "none";
+      });
+    }
+
+    addChartTooltip(
+      document.getElementById("totalChart"),
+      () => sampleTimes,
+      () => samples,
+      (power, idx, tMs) => `${formatPower(power)} at ${formatDuration(tMs / 1000)}`);
+
+    // ---------------------------------------------------------------------
+    // CSV export — one row per sample, "<time in ms>;<power in W>[;<voltage>]".
+    // ---------------------------------------------------------------------
+
+    function downloadCsv(event) {
+      const hasV = voltages.length == samples.length;
+      const lines = new Array(samples.length);
+      for (let i = 0; i < samples.length; ++i) {
+        lines[i] = hasV ? `${sampleTimes[i]};${samples[i]};${voltages[i]}`
+                        : `${sampleTimes[i]};${samples[i]}`;
+      }
+      const data = (hasV ? "time_ms;power_W;voltage_V\n" : "time_ms;power_W\n")
+                 + lines.join("\n");
+      const url = URL.createObjectURL(new Blob([data], { type: "text/csv" }));
+      event.target.href = url;
+      event.target.download = `${new Date().toDateString()} - ${samples.length} samples.csv`;
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    // ---------------------------------------------------------------------
+    // Firefox Profiler export.
+    //
+    // The counter format here matches usb-power-profiling.js: each sample's
+    // count is the energy used since the previous sample, in pW·h. The
+    // profiler then displays a power graph in real time.
+    // ---------------------------------------------------------------------
+
+    function WattSecondToPicoWattHour(value) {
+      return value / 3600 * 1e12;
+    }
+
+    function counterObject(name, description, times, counts) {
+      // Strip consecutive zeros (idle periods) for a smaller profile,
+      // keeping the boundary samples so the line drops back to zero.
+      let time = [];
+      let count = counts.filter((sample, index) => {
+        const keep =
+          sample != 0 ||
+          index == 0 || index == counts.length - 1 ||
+          counts[index - 1] != 0 || counts[index + 1] != 0;
+        if (keep) time.push(times[index]);
+        return keep;
+      });
+      return {
+        name,
+        category: "power",
+        description,
+        pid: "0",
+        mainThreadIndex: 0,
+        samples: { time, count, length: count.length },
+      };
+    }
+
+    function makeProfile() {
+      const baseProfile = '{"meta":{"interval":1,"startTime":0,"abi":"","misc":"","oscpu":"","platform":"","processType":0,"extensions":{"id":[],"name":[],"baseURL":[],"length":0},"categories":[{"name":"Other","color":"grey","subcategories":["Other"]}],"product":"WebSerial power profiling","stackwalk":0,"toolkit":"","version":27,"preprocessedProfileVersion":48,"appBuildID":"","sourceURL":"","physicalCPUs":1,"logicalCPUs":0,"CPUName":"","symbolicationNotSupported":true,"markerSchema":[]},"libs":[],"pages":[],"threads":[{"processType":"default","processStartupTime":0,"processShutdownTime":null,"registerTime":0,"unregisterTime":null,"pausedRanges":[],"name":"GeckoMain","isMainThread":true,"pid":"0","tid":0,"samples":{"weightType":"samples","weight":null,"eventDelay":[],"stack":[],"time":[],"length":0},"markers":{"data":[],"name":[],"startTime":[],"endTime":[],"phase":[],"category":[],"length":0},"stackTable":{"frame":[0],"prefix":[null],"category":[0],"subcategory":[0],"length":1},"frameTable":{"address":[-1],"inlineDepth":[0],"category":[null],"subcategory":[0],"func":[0],"nativeSymbol":[null],"innerWindowID":[0],"implementation":[null],"line":[null],"column":[null],"length":1},"stringTable":{"_array":["(root)"],"_stringToIndex":{}},"funcTable":{"isJS":[false],"relevantForJS":[false],"name":[0],"resource":[-1],"fileName":[null],"lineNumber":[null],"columnNumber":[null],"length":1},"resourceTable":{"lib":[],"name":[],"host":[],"type":[],"length":0},"nativeSymbols":{"libIndex":[],"address":[],"name":[],"functionSize":[],"length":0}}],"counters":[]}';
+
+      if (samples.length == 0) return null;
+
+      const profile = JSON.parse(baseProfile);
+      profile.meta.startTime = startTime;
+      profile.meta.profilingStartTime = sampleTimes[0];
+      profile.meta.profilingEndTime = sampleTimes[sampleTimes.length - 1];
+      profile.meta.product =
+        new Date(startTime).toLocaleDateString() + " — " + deviceName;
+      profile.meta.CPUName = deviceName;
+
+      // Marker schema: voltage as a graph alongside the power counter.
+      profile.meta.markerSchema = [
+        {
+          name: "volt",
+          tooltipLabel: "{marker.data.v} V",
+          display: [],
+          data: [{key: "v", label: "Voltage (V)", format: "string"}],
+          graphs: [{key: "v", color: "orange", type: "line-filled"}],
+        },
+      ];
+
+      const zeros = new Array(sampleTimes.length).fill(0);
+      const thread = profile.threads[0];
+      thread.samples.stack = zeros;
+      thread.samples.time = sampleTimes.slice();
+      thread.samples.length = sampleTimes.length;
+
+      // Build the energy-per-interval counts in pW·h.
+      const counts = new Array(samples.length);
+      for (let i = 0; i < samples.length; ++i) {
+        const dtS = i == 0 ? 0 : (sampleTimes[i] - sampleTimes[i - 1]) / 1000;
+        counts[i] = Math.max(0, Math.round(WattSecondToPicoWattHour(samples[i] * dtS)));
+      }
+      profile.counters = [
+        counterObject("USB power",
+                      `Data recorded by a ${deviceName} power meter`,
+                      sampleTimes, counts),
+      ];
+
+      // Add voltage as instant markers, if available.
+      if (voltages.length) {
+        const stringTable = thread.stringTable;
+        const markers = thread.markers;
+        const voltageIndex = stringTable._array.length;
+        stringTable._array.push("Voltage");
+        for (let i = 0; i < voltages.length; ++i) {
+          markers.startTime.push(sampleTimes[i]);
+          markers.endTime.push(sampleTimes[i]);
+          markers.phase.push(0);
+          markers.category.push(0);
+          markers.name.push(voltageIndex);
+          markers.data.push({ type: "volt", v: voltages[i] });
+        }
+        markers.length = markers.name.length;
+      }
+
+      return profile;
+    }
+
+    function downloadProfile(event) {
+      const p = makeProfile();
+      if (!p) return;
+      const url = URL.createObjectURL(
+        new Blob([JSON.stringify(p)], { type: "application/json" }));
+      event.target.href = url;
+      event.target.download = `${new Date().toDateString()} - ${samples.length} samples.json`;
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
+
+    async function openProfile(event) {
+      event.preventDefault();
+      const p = makeProfile();
+      if (!p) return;
+      const origin = "https://profiler.firefox.com";
+      const profilerWindow = window.open(origin + "/from-post-message/", "_blank");
+      if (!profilerWindow) return;
+
+      let isReady = false;
+      window.addEventListener("message", function listener(event) {
+        if (event.data && event.data.name === "ready:response") {
+          window.removeEventListener("message", listener);
+          isReady = true;
+          profilerWindow.postMessage({ name: "inject-profile", profile: p }, origin);
+        }
+      });
+      while (true) {
+        await new Promise(r => setTimeout(r, 100));
+        if (isReady) break;
+        profilerWindow.postMessage({ name: "ready:request" }, origin);
+      }
+    }
+
+    // ---------------------------------------------------------------------
+    // Wire up DOM events.
+    // ---------------------------------------------------------------------
+
+    document.getElementById("connectButton").addEventListener("click", onConnectClick);
+    document.getElementById("disconnectButton").addEventListener("click", onDisconnectClick);
+    document.getElementById("resetButton").addEventListener("click", onResetClick);
+    document.getElementById("csv").addEventListener("click", downloadCsv);
+    document.getElementById("profile").addEventListener("click", downloadProfile);
+    document.getElementById("open").addEventListener("click", openProfile);
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        showGraph();
+        updateStatus();
+      }
+    });
+
+    // If the device is unplugged, the read loop ends naturally and we'll
+    // notice via the disconnect event from navigator.serial.
+    if ("serial" in navigator) {
+      navigator.serial.addEventListener("disconnect", e => {
+        if (e.target === currentPort) {
+          lastError = "Device was unplugged.";
+          onDisconnectClick();
+        }
+      });
+    }
+  </script>
+  <footer>This work © 2026 by Florian Quèze is licensed under <a href="http://creativecommons.org/licenses/by-nc/4.0/" target="_blank" rel="license noopener noreferrer">CC BY-NC 4.0<img src="https://mirrors.creativecommons.org/presskit/icons/cc.svg" alt="CC"><img src="https://mirrors.creativecommons.org/presskit/icons/by.svg" alt="BY"><img src="https://mirrors.creativecommons.org/presskit/icons/nc.svg" alt="NC"></a></footer>
+</body>
+</html>
