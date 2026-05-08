@@ -572,6 +572,21 @@ button[hidden] {
         baudRate: 115200,
         driver: RuiDengDriver,
         defaultName: "TC66C" },
+      // Shizuku (and rebrands like the AVHzY CT-3). STM32 vendor id with
+      // three known product ids. Three separate entries because Web Serial
+      // ANDs the fields within a filter, so we OR by listing each filter.
+      { filter: { usbVendorId: 0x0483, usbProductId: 0xFFFF },
+        baudRate: 115200,
+        driver: ShizukuDriver,
+        defaultName: "Shizuku" },
+      { filter: { usbVendorId: 0x0483, usbProductId: 0xFFFE },
+        baudRate: 115200,
+        driver: ShizukuDriver,
+        defaultName: "Shizuku" },
+      { filter: { usbVendorId: 0x0483, usbProductId: 0x374B },
+        baudRate: 115200,
+        driver: ShizukuDriver,
+        defaultName: "Shizuku" },
     ];
 
     // ---------------------------------------------------------------------
@@ -1184,6 +1199,245 @@ button[hidden] {
     };
 
     // ---------------------------------------------------------------------
+    // Shizuku driver (and rebrands of the same hardware).
+    //
+    // The device exposes a USB-CDC serial interface on Firefox's chooser.
+    // Once we send CMD_START_SAMPLING(1ms), it streams sample frames at
+    // ~70–1000 Hz (depending on host buffering) until we send CMD_STOP.
+    //
+    // Frame on the wire:
+    //   [0xA5] [int32 LE: payload length] [payload] [XOR checksum] [0x5A]
+    //
+    // Command payload (request):
+    //   [0x01] [cmd] [reqId] [0x00] [args...]
+    // Reply payload (4 bytes):
+    //   [0x??] [0x??] [reqId] [0x80]
+    // Sample payload (28 bytes):
+    //   [0x04] [0x00] [samplingReqId] [0x00]   // 4-byte header
+    //   [float32 LE: voltage]                  // bytes 4..7
+    //   [float32 LE: current]                  // bytes 8..11
+    //   [8 bytes of ???]                       // bytes 12..19
+    //   [uint64 LE: timestamp µs since boot]   // bytes 20..27
+    //
+    // We use the device's own µs timestamp for accurate timing, like the
+    // upstream Node implementation does. (Sample arrival on the host can
+    // be jittery; the device clock isn't.)
+    // ---------------------------------------------------------------------
+
+    function ShizukuDriver(portInfo) {
+      this.deviceName = "Shizuku";
+      this.buffer = new Uint8Array(0);
+      this.writer = null;
+      this.lastReqId = 0;
+      this.expectedReplies = {};       // reqId → resolve fn
+      this.samplingReqId = -1;         // sample packets carry this in payload[2]
+      this.initialDeviceTimestampUs = 0n;
+      this.initialPerformanceNowMs = 0;
+      // Diagnostic counters; visible via _shizukuDriver.stats.
+      this.stats = {
+        chunks: 0, bytesIn: 0, frames: 0,
+        replies: 0, samples: 0, unknown: 0, badFrames: 0,
+      };
+    }
+
+    ShizukuDriver.prototype = {
+      BEGIN_DATA: 0xA5,
+      END_DATA: 0x5A,
+      CMD_STOP: 0x07,
+      CMD_START_SAMPLING: 0x09,
+      SAMPLING_INTERVAL_MS: 1,
+
+      checksum(bytes) {
+        let c = 0;
+        for (let i = 0; i < bytes.length; ++i) c ^= bytes[i];
+        return c;
+      },
+
+      // Frame `payload` and write it to the device. Returns a promise that
+      // resolves when the device acks the request.
+      async sendCommand(cmd, args = []) {
+        const reqId = this.lastReqId++ & 0xff;
+        const replyPromise = new Promise(resolve => {
+          this.expectedReplies[reqId] = resolve;
+        });
+
+        const payload = new Uint8Array(4 + args.length);
+        payload[0] = 0x01;             // common request prefix
+        payload[1] = cmd;
+        payload[2] = reqId;
+        payload[3] = 0;
+        payload.set(args, 4);
+
+        const frame = new Uint8Array(1 + 4 + payload.length + 1 + 1);
+        frame[0] = this.BEGIN_DATA;
+        // payload length as int32 LE
+        const len = payload.length;
+        frame[1] = len & 0xff;
+        frame[2] = (len >>> 8) & 0xff;
+        frame[3] = (len >>> 16) & 0xff;
+        frame[4] = (len >>> 24) & 0xff;
+        frame.set(payload, 5);
+        frame[5 + payload.length] = this.checksum(payload);
+        frame[5 + payload.length + 1] = this.END_DATA;
+
+        await this.writer.write(frame);
+        return { reqId, replyPromise };
+      },
+
+      async start(port) {
+        this.writer = port.writable.getWriter();
+        window._shizukuDriver = this;
+
+        // CMD_STOP first, in case a previous session was left running.
+        // Race the ack against a 200 ms timeout: on a fresh boot the
+        // device has nothing to stop and may not ack at all.
+        const stopReq = await this.sendCommand(this.CMD_STOP);
+        await Promise.race([
+          stopReq.replyPromise,
+          new Promise(r => setTimeout(r, 200)),
+        ]);
+        delete this.expectedReplies[stopReq.reqId];
+
+        // CMD_START_SAMPLING(int32 LE: intervalMs). Sample packets carry
+        // this request's id in payload[2]; remember it so handlePayload
+        // can match. We don't wait for the ack — the device may begin
+        // streaming samples before sending it.
+        const interval = this.SAMPLING_INTERVAL_MS;
+        const intervalBytes = new Uint8Array([
+          interval & 0xff,
+          (interval >>> 8) & 0xff,
+          (interval >>> 16) & 0xff,
+          (interval >>> 24) & 0xff,
+        ]);
+        const startReq = await this.sendCommand(this.CMD_START_SAMPLING, intervalBytes);
+        this.samplingReqId = startReq.reqId;
+      },
+
+      async stop() {
+        if (!this.writer) return;
+        try {
+          await this.sendCommand(this.CMD_STOP);
+        } catch (e) {
+          console.error("CMD_STOP failed:", e);
+        }
+        try { await this.writer.close(); } catch (_) {}
+        try { this.writer.releaseLock(); } catch (_) {}
+        this.writer = null;
+        this.expectedReplies = {};
+      },
+
+      onChunk(chunk) {
+        ++this.stats.chunks;
+        this.stats.bytesIn += chunk.length;
+
+        // Append to buffer, then drain as many full frames as we have.
+        if (this.buffer.length) {
+          const merged = new Uint8Array(this.buffer.length + chunk.length);
+          merged.set(this.buffer);
+          merged.set(chunk, this.buffer.length);
+          this.buffer = merged;
+        } else {
+          this.buffer = new Uint8Array(chunk);
+        }
+
+        // Loop processing one frame at a time. On a bad frame we step
+        // forward by 1 byte to resync on the next 0xA5.
+        while (this.buffer.length >= 7 /* min frame size */) {
+          if (this.buffer[0] !== this.BEGIN_DATA) {
+            let i = 1;
+            while (i < this.buffer.length && this.buffer[i] !== this.BEGIN_DATA) ++i;
+            this.buffer = this.buffer.slice(i);
+            continue;
+          }
+
+          const dv = new DataView(this.buffer.buffer, this.buffer.byteOffset, this.buffer.byteLength);
+          const payloadLen = dv.getInt32(1, true);
+          // Sanity check on payloadLen — if it's absurd we're not actually
+          // at a frame start; skip the false 0xA5.
+          if (payloadLen < 0 || payloadLen > 1024) {
+            ++this.stats.badFrames;
+            this.buffer = this.buffer.slice(1);
+            continue;
+          }
+          const totalLen = 1 + 4 + payloadLen + 1 + 1;
+          if (this.buffer.length < totalLen) return;
+
+          const payload = this.buffer.subarray(5, 5 + payloadLen);
+          const frameChecksum = this.buffer[5 + payloadLen];
+          const frameEnd = this.buffer[5 + payloadLen + 1];
+
+          if (frameEnd !== this.END_DATA || this.checksum(payload) !== frameChecksum) {
+            ++this.stats.badFrames;
+            this.buffer = this.buffer.slice(1);
+            continue;
+          }
+
+          ++this.stats.frames;
+          this.handlePayload(payload);
+          this.buffer = this.buffer.slice(totalLen);
+        }
+      },
+
+      handlePayload(payload) {
+        // Reply to a previous request.
+        if (payload.length === 4 && payload[3] === 0x80) {
+          ++this.stats.replies;
+          const reqId = payload[2];
+          const resolve = this.expectedReplies[reqId];
+          if (resolve) {
+            delete this.expectedReplies[reqId];
+            resolve();
+          } else {
+            console.warn("Shizuku: reply for reqId=" + reqId + " (no waiter)",
+                         "header=" + Array.from(payload.slice(0, 2))
+                                           .map(b => b.toString(16).padStart(2, "0")).join(""));
+          }
+          return;
+        }
+
+        // Sample packet?
+        if (payload.length >= 4 + 8 + 8 &&
+            payload[0] === 0x04 &&
+            payload[1] === 0x00 &&
+            payload[2] === this.samplingReqId &&
+            payload[3] === 0x00) {
+          ++this.stats.samples;
+          const dv = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+          const voltage = dv.getFloat32(4, true);
+          const current = Math.abs(dv.getFloat32(8, true));
+          const tsUs = dv.getBigUint64(payload.length - 8, true);
+
+          if (this.initialDeviceTimestampUs === 0n) {
+            this.initialDeviceTimestampUs = tsUs;
+            this.initialPerformanceNowMs = performance.now() - startPerformanceNow;
+          }
+          const tMs = this.initialPerformanceNowMs +
+                      Number(tsUs - this.initialDeviceTimestampUs) / 1000;
+          const power = voltage * current;
+          addSample(tMs, power, voltage);
+          return;
+        }
+
+        // Unknown payload — log the first occurrence of each shape so we
+        // can tell what variants firmware throws at us, but don't spam.
+        ++this.stats.unknown;
+        const head = Array.from(payload.slice(0, Math.min(4, payload.length)))
+                           .map(b => b.toString(16).padStart(2, "0")).join("");
+        const sig = payload.length + ":" + head;
+        if (!this._unknownSigs) this._unknownSigs = new Set();
+        if (!this._unknownSigs.has(sig)) {
+          this._unknownSigs.add(sig);
+          console.log("Shizuku: unknown payload sig=" + sig + " bytes=" +
+                      Array.from(payload).map(b => b.toString(16).padStart(2, "0")).join(" "));
+        }
+      },
+
+      onDisconnect() {
+        this.buffer = new Uint8Array(0);
+      },
+    };
+
+    // ---------------------------------------------------------------------
     // Sample plumbing — appends a sample, updates the live readouts, and
     // schedules a chart redraw (coalesced via rAF, since samples can arrive
     // faster than we'd want to repaint).
@@ -1208,15 +1462,32 @@ button[hidden] {
       scheduleRedraw();
     }
 
-    let redrawScheduled = false;
+    // Coalesce UI updates to at most ~2 Hz. With high-rate devices
+    // (Shizuku, ~1 kHz) we'd otherwise repaint on every frame and the
+    // live readouts would flicker faster than the eye can follow.
+    const UI_UPDATE_INTERVAL_MS = 500;
+    let lastUiUpdateAt = 0;
+    let pendingUiTimerId = 0;
     function scheduleRedraw() {
-      if (redrawScheduled) return;
-      redrawScheduled = true;
-      requestAnimationFrame(() => {
-        redrawScheduled = false;
+      const now = performance.now();
+      const dueIn = Math.max(0, UI_UPDATE_INTERVAL_MS - (now - lastUiUpdateAt));
+      if (dueIn === 0) {
+        if (pendingUiTimerId) {
+          clearTimeout(pendingUiTimerId);
+          pendingUiTimerId = 0;
+        }
+        lastUiUpdateAt = now;
         showGraph();
         updateStatus();
-      });
+        return;
+      }
+      if (pendingUiTimerId) return;
+      pendingUiTimerId = setTimeout(() => {
+        pendingUiTimerId = 0;
+        lastUiUpdateAt = performance.now();
+        showGraph();
+        updateStatus();
+      }, dueIn);
     }
 
     // ---------------------------------------------------------------------
@@ -1525,6 +1796,13 @@ button[hidden] {
     function showGraph() {
       if (document.hidden || processedSamples >= samples.length) return;
 
+      // Track the window of samples processed in this redraw, so we can
+      // show the user a smoothed "live" reading rather than the last raw
+      // sample (which jitters wildly at high rates).
+      let windowSumPowerWeighted = 0;
+      let windowSumVoltageWeighted = 0;
+      let windowWeight = 0;
+
       while (processedSamples < samples.length) {
         const i = processedSamples;
         const power = samples[i];
@@ -1534,6 +1812,8 @@ button[hidden] {
         // For i == 0 we have no interval; treat it as zero contribution.
         const dt = i == 0 ? 0 : (sampleTimes[i] - sampleTimes[i - 1]) / 1000;
         cachedStats.energyJ += power * dt;
+        windowSumPowerWeighted += power * dt;
+        windowWeight += dt;
 
         if (voltages.length > i) {
           const voltage = voltages[i];
@@ -1541,6 +1821,7 @@ button[hidden] {
           if (voltage > cachedStats.maxVoltage) cachedStats.maxVoltage = voltage;
           cachedStats.sumVoltage += voltage * dt;
           cachedStats.sumVoltageWeight += dt;
+          windowSumVoltageWeighted += voltage * dt;
         }
 
         ++processedSamples;
@@ -1551,9 +1832,18 @@ button[hidden] {
 
       const durationS = (sampleTimes[sampleTimes.length - 1] - sampleTimes[0]) / 1000;
       setText("sampleCount", samples.length);
-      setText("lastPower", formatPower(samples[samples.length - 1]));
+      // Show the time-weighted average over the most recent UI window.
+      // This smooths the live reading at high sample rates so it doesn't
+      // flicker; it's still responsive at 2 Hz UI updates.
+      const livePower = windowWeight > 0
+        ? windowSumPowerWeighted / windowWeight
+        : samples[samples.length - 1];
+      setText("lastPower", formatPower(livePower));
       if (voltages.length) {
-        setText("lastVoltage", formatVoltage(voltages[voltages.length - 1]));
+        const liveVoltage = windowWeight > 0 && windowSumVoltageWeighted > 0
+          ? windowSumVoltageWeighted / windowWeight
+          : voltages[voltages.length - 1];
+        setText("lastVoltage", formatVoltage(liveVoltage));
       }
 
       setText("maxPower", formatPower(cachedStats.maxPower));

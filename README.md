@@ -38,6 +38,7 @@ class alongside `YzxStudioDriver`.
 |---|---|---|
 | YZXStudio (e.g. 1280E) | `1a86:*` (CH340) | `YzxStudioDriver` |
 | RuiDeng TC66C | `28e9:*` | `RuiDengDriver` |
+| Shizuku (and rebrands, e.g. AVHzY CT-3 / Korona YK003C) | `0483:fffe`, `0483:ffff`, `0483:374b` | `ShizukuDriver` |
 
 Other meters supported by the
 [Node.js usb-power-profiling](https://github.com/fqueze/usb-power-profiling)
