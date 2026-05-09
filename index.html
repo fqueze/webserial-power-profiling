@@ -396,6 +396,13 @@ footer a {
   visibility: hidden;
 }
 
+/* The Reset button lives inside the first child (alongside Connect /
+   Disconnect), so the rule above doesn't reach it. Hide it explicitly
+   until data is present. */
+.content:not(.has-data) #resetButton {
+  display: none;
+}
+
 .switch-name {
   cursor: text;
   border-bottom: 1px dotted transparent;
@@ -446,10 +453,11 @@ button[hidden] {
   </header>
   <div class="content">
     <p>
-      <button id="connectButton" type="button">Connect to a power meter…</button>
+      <button id="connectButton" type="button"
+              title="Pick a known supported power meter from the chooser. Shift-click to show all serial ports.">Connect to a power meter…</button>
       <button id="disconnectButton" type="button" hidden>Disconnect</button>
-      <button id="resetButton" type="button" hidden>Reset samples</button>
-      <span id="statusText">Click Connect, then pick the power meter's serial port. Shift-click to show all serial ports.</span>
+      <button id="resetButton" type="button">Reset samples</button>
+      <span id="statusText"></span>
     </p>
     <h1 id="power">Live profile: <span id="lastPower">—</span> <span id="lastVoltage"></span></h1>
   <div class="profile" id="chartContainer">
@@ -1443,12 +1451,8 @@ button[hidden] {
     }
 
     async function onConnectClick(event) {
-      if (!("serial" in navigator)) {
-        lastError = "This browser doesn't support the Web Serial API. Try Firefox 151 or later, or a Chromium-based browser.";
-        updateStatus();
-        return;
-      }
-
+      // The Connect button isn't wired up at all if Web Serial is missing,
+      // so we know navigator.serial exists by the time we get here.
       let port;
       try {
         // Shift-click bypasses the filter so we can experiment with new devices.
@@ -1493,7 +1497,6 @@ button[hidden] {
 
       document.getElementById("connectButton").hidden = true;
       document.getElementById("disconnectButton").hidden = false;
-      document.getElementById("resetButton").hidden = false;
       setText("statusText", "Sampling…");
 
       readLoopAbort = new AbortController();
@@ -2016,9 +2019,20 @@ button[hidden] {
     // Wire up DOM events.
     // ---------------------------------------------------------------------
 
-    document.getElementById("connectButton").addEventListener("click", onConnectClick);
-    document.getElementById("disconnectButton").addEventListener("click", onDisconnectClick);
-    document.getElementById("resetButton").addEventListener("click", onResetClick);
+    if ("serial" in navigator) {
+      document.getElementById("connectButton").addEventListener("click", onConnectClick);
+      document.getElementById("disconnectButton").addEventListener("click", onDisconnectClick);
+      document.getElementById("resetButton").addEventListener("click", onResetClick);
+    } else {
+      // No Web Serial in this browser — there's nothing the user can do
+      // here. Hide the buttons and explain.
+      document.getElementById("connectButton").hidden = true;
+      setText("statusText",
+              "This browser doesn't support the " +
+              "<a href=\"https://developer.mozilla.org/en-US/docs/Web/API/Web_Serial_API\" " +
+              "target=\"_blank\" rel=\"noopener\">Web Serial API</a>. " +
+              "Try Firefox 151 or later, or a Chromium-based browser.");
+    }
     document.getElementById("csv").addEventListener("click", downloadCsv);
     document.getElementById("profile").addEventListener("click", downloadProfile);
     document.getElementById("open").addEventListener("click", openProfile);
