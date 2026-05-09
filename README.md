@@ -11,10 +11,10 @@ required Node.js. Here, the page talks to the meter directly.
 
 ## Usage
 
-Open `index.html` in a Web Serial-capable browser (Firefox 151+, or
-Chromium-based browsers like Chrome and Edge — Safari doesn't support Web
-Serial yet). Either open the file locally or host it on `https://` —
-Web Serial is restricted to secure contexts.
+Open `index.html` in a Web Serial-capable browser. Firefox 151+ supports
+Web Serial natively; Chromium-based browsers like Chrome and Edge work too.
+Safari doesn't support Web Serial yet. Either open the file locally or
+host it on `https://` — Web Serial is restricted to secure contexts.
 
 1. Plug the power meter into the computer's USB port.
 2. Click **Connect to a power meter…**.

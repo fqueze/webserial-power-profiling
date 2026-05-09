@@ -1507,7 +1507,7 @@ button[hidden] {
 
     async function onConnectClick(event) {
       if (!("serial" in navigator)) {
-        lastError = "This browser doesn't support the Web Serial API. Try Chrome, Edge, or Opera.";
+        lastError = "This browser doesn't support the Web Serial API. Try Firefox 151 or later, or a Chromium-based browser.";
         updateStatus();
         return;
       }
