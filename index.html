@@ -392,68 +392,8 @@ footer a {
   color: #374151;
 }
 
-.status-indicator {
-  display: inline-block;
-  width: 1em;
-  height: 1em;
-  margin-right: 0.5em;
-  vertical-align: middle;
-  transition: opacity 0.3s;
-}
-
-#statusText {
-  vertical-align: middle;
-}
-
 .content:not(.has-data) > *:not(:first-child) {
   visibility: hidden;
-}
-
-.status-indicator circle {
-  fill: none;
-  stroke-width: 2;
-}
-
-.status-indicator circle:first-child {
-  stroke: #064e3b22;
-}
-
-.status-indicator #statusProgress {
-  stroke: #064e3b88;
-  stroke-dasharray: 50.265;
-  stroke-dashoffset: 50.265;
-  transform: rotate(-90deg);
-  transform-origin: 50% 50%;
-}
-
-.status-indicator.fetching #statusProgress {
-  stroke-dashoffset: 50.265;
-}
-
-.status-indicator.waiting #statusProgress {
-  animation: fillCircle 5s linear forwards;
-}
-
-@keyframes fillCircle {
-  from {
-    stroke-dashoffset: 50.265;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-.status-indicator.error #statusProgress {
-  stroke: #dc2626 !important;
-  stroke-dashoffset: 0 !important;
-}
-
-.status-indicator.stale {
-  opacity: 0.3;
-}
-
-.status-indicator.stale #statusProgress {
-  stroke-dashoffset: 0;
 }
 
 .switch-name {
@@ -509,10 +449,7 @@ button[hidden] {
       <button id="connectButton" type="button">Connect to a power meter…</button>
       <button id="disconnectButton" type="button" hidden>Disconnect</button>
       <button id="resetButton" type="button" hidden>Reset samples</button>
-      <svg id="statusIndicator" class="status-indicator" viewBox="0 0 20 20">
-        <circle cx="10" cy="10" r="8" />
-        <circle id="statusProgress" cx="10" cy="10" r="8" />
-      </svg><span id="statusText">Click Connect, then pick the power meter's serial port. Shift-click to show all serial ports.</span>
+      <span id="statusText">Click Connect, then pick the power meter's serial port. Shift-click to show all serial ports.</span>
     </p>
     <h1 id="power">Live profile: <span id="lastPower">—</span> <span id="lastVoltage"></span></h1>
   <div class="profile" id="chartContainer">
@@ -1558,7 +1495,6 @@ button[hidden] {
       document.getElementById("disconnectButton").hidden = false;
       document.getElementById("resetButton").hidden = false;
       setText("statusText", "Sampling…");
-      setIndicatorStatus("fetching");
 
       readLoopAbort = new AbortController();
       readFromPort(port, currentDriver, readLoopAbort.signal);
@@ -1632,7 +1568,6 @@ button[hidden] {
 
       document.getElementById("connectButton").hidden = false;
       document.getElementById("disconnectButton").hidden = true;
-      setIndicatorStatus(null);
       setText("statusText", "Disconnected. Click Connect to start a new session.");
     }
 
@@ -1662,27 +1597,16 @@ button[hidden] {
     let lastUpdateTime = null;
     let lastError = null;
 
-    function setIndicatorStatus(status) {
-      const indicator = document.getElementById("statusIndicator");
-      indicator.classList.remove("fetching", "waiting", "error", "stale");
-      if (status) indicator.classList.add(status);
-    }
-
     function updateStatus() {
       if (document.hidden) return;
 
       let message;
       if (lastError) {
         message = "Error: " + lastError;
-        setIndicatorStatus("error");
       } else if (currentPort && lastUpdateTime) {
         message = "Last sample: " + new Date(lastUpdateTime).toLocaleTimeString();
-        // Stale if no sample in 3 seconds (YZXStudio normally pushes ~10 Hz).
-        const isStale = (Date.now() - lastUpdateTime) >= 3000;
-        setIndicatorStatus(isStale ? "stale" : "fetching");
       } else if (currentPort) {
         message = "Connected, waiting for first sample…";
-        setIndicatorStatus("fetching");
       } else {
         return;
       }
